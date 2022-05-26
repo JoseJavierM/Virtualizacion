@@ -1,0 +1,93 @@
+kind: ConfigMap 
+apiVersion: v1 
+metadata:
+  name: example-configmap 
+data:
+  database: mongodb
+  database_uri: mongodb://localhost:27017
+  
+  keys: | 
+    image.public.key=771 
+    rsa.public.key=42
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: node-app-volume
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/confidentialData"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: node-app-claim
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 200Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: node-app
+  template:
+    metadata:
+      labels:
+        app: node-app
+    spec:
+      containers:
+      - name: node-app
+        image: agarciatj/node-k8s:v1
+        imagePullPolicy: Always
+        env:
+          - name: SECRET_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: db-user-pass
+                key: username.txt
+          - name: SECRET_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: db-user-pass
+                key: password.txt
+        envFrom:
+          - configMapRef:
+              name: example-configmap
+        ports:
+        - containerPort: 3000
+        volumeMounts:
+          - mountPath: "/usr/src/app/data"
+            name: node-app-storage
+      volumes:
+      - name: node-app-storage
+        persistentVolumeClaim:
+          claimName: node-app-claim
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  type: NodePort
+  ports:
+  - port: 3000
+    targetPort: 3000
+    nodePort: 30000
+  selector:
+    app: node-app
